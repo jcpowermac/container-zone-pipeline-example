@@ -121,6 +121,12 @@ objects:
             stage('build') {
               openshiftBuild(buildConfig: '${NAME}-ex-reg', showBuildLogs: 'true')
             }
+            stage('rest-api') {
+              def address = "https://openshift.default.svc.cluster.local/api/v1"
+              def urlInfo = address.toURL()
+              def connection = urlInfo.openConnection()
+              println "${connection.content}"
+            }
           }
       type: JenkinsPipeline
     triggers:
