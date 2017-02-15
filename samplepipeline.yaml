@@ -93,10 +93,10 @@ parameters:
   required: true
   value: openshift
 - name: REGISTRY_HOST
-  value: 10.53.252.55:5000 
+  value: rhc4tp-registry.stage.a4.vary.redhat.com 
   required: true
 - name: REGISTRY_USERNAME
-  value: jcallen
+  value: p1115288976631126cdeaed0985605379f6c41dd348
   required: true
 objects:
 - apiVersion: v1
@@ -219,6 +219,8 @@ objects:
       to:
         kind: DockerImage 
         name: ${REGISTRY_HOST}/${REGISTRY_USERNAME}/${NAME}:latest
+      pushSecret:
+        name: container-zone
     postCommit:
       script: npm test
     source:
