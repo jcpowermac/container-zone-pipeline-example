@@ -1,0 +1,115 @@
+= Using Red Hat Connect Container Zone Registry with OpenShift
+Joseph Callen
+:toc:
+
+
+[[Introduction]]
+== Introduction
+This document will guide you through the process of integrating OpenShift with the Red Hat Connect Container Zone registry.
+
+
+[NOTE]
+====
+The procedure below only works in on-premise or dedicated OpenShift environments.
+====
+
+[[enable]]
+== Configuring an OpenShift project 
+
+
+Using the https://github.com/openshift/origin/blob/master/examples/jenkins/pipeline/samplepipeline.yaml[samplepipeline.yaml] as an example for modification.
+
+
+
+If you are already using a template adding the two variables below will asset in the Jenkinsfile and the BuildConfig for the external registry.
+[source]
+....
+- name: REGISTRY_HOST
+  value: rhc4tp-registry.stage.a4.vary.redhat.com 
+  required: true
+- name: REGISTRY_USERNAME
+  value: p1115288976631126cdeaed0985605379f6c41dd348
+  required: true
+....
+The two values will be provided on the project page.
+
+
+=== External Registry BuildConfig
+This is a duplication of the existing BuildConfig with some minor modifications.
+First we add to the name variable `-ex-reg`.  Next modify the output of the build process to a DockerImage. And finally we add a `pushSecret` named container-zone.
+[source]
+....
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    annotations:
+      description: Defines how to build the application
+    name: ${NAME}-ex-reg     <1>
+  spec: 
+    output:                  <2>
+      to:
+        kind: DockerImage 
+        name: ${REGISTRY_HOST}/${REGISTRY_USERNAME}/${NAME}:latest <3>
+      pushSecret:
+        name: container-zone <4>
+    postCommit:
+      script: npm test
+    source:
+      contextDir: ${CONTEXT_DIR}
+      git:
+        ref: ${SOURCE_REPOSITORY_REF}
+        uri: ${SOURCE_REPOSITORY_URL}
+      type: Git
+    strategy:
+      sourceStrategy:
+        env:
+        - name: NPM_MIRROR
+          value: ${NPM_MIRROR}
+        from:
+          kind: ImageStreamTag
+          name: nodejs:4
+          namespace: ${NAMESPACE}
+      type: Source
+    triggers:
+    - github:
+        secret: ${GITHUB_WEBHOOK_SECRET}
+      type: GitHub
+    - generic:
+        secret: ${GENERIC_WEBHOOK_SECRET}
+      type: Generic
+....
+<1> Variablized name of the BuildConfig 
+<2> Change the output to an external registry
+<3> Name of the external registry host, user and image
+<4> The OpenShift new-dockercfg secret for container zone registry authentication
+
+
+[[jenkins-pipeline-strategy]]
+=== Adding a Jenkins Pipeline Strategy
+
+[source]
+....
+  spec:
+    strategy:
+      jenkinsPipelineStrategy:
+        jenkinsfile: |-
+          node('nodejs') {
+            stage('build') {        <1>
+              openshiftBuild(buildConfig: '${NAME}', showBuildLogs: 'true')
+            }
+            stage('deploy') {       <2>
+              openshiftDeploy(deploymentConfig: '${NAME}')
+            }
+            stage('build-ex-reg') { <3>
+              openshiftBuild(buildConfig: '${NAME}-ex-reg', showBuildLogs: 'true')
+            }
+          }
+      type: JenkinsPipeline
+....
+
+<3> From the example we add an additional stage in the pipeline to run our additional BuildConfig that outputs to the external registry.
+
+
+
+
+
