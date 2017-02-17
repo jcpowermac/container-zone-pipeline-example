@@ -1,5 +1,6 @@
 FROM registry.access.redhat.com/rhel7
 
+ENV HOME=/home/skopeo
 
 RUN INSTALL_PKGS="skopeo" && \
     yum install -y --disablerepo "*" \
@@ -8,7 +9,8 @@ RUN INSTALL_PKGS="skopeo" && \
     rpm -V $INSTALL_PKGS && \
     yum clean all -y
 
-RUN chown -R 1001:0 $HOME && \
+RUN mkdir $HOME && \
+    chown -R 1001:0 $HOME && \
     chmod -R g+rw $HOME
 
 USER 1001
