@@ -13,4 +13,4 @@ RUN chown -R 1001:0 $HOME && \
 
 USER 1001
 
-CMD "sleep 60m"
+CMD ["tail -f /dev/null"] 
