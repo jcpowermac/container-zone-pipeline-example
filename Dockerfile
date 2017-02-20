@@ -4,7 +4,7 @@ ENV HOME=/home/skopeo
 
 RUN INSTALL_PKGS="skopeo atomic-openshift-clients" && \
     yum install -y --disablerepo "*" \
-                   --enablerepo rhel-7-server-rpms,rhel-7-server-optional-rpms,rhel-7-server-extras-rpmsi,rhel-7-server-ose-3.4-rpms \
+                   --enablerepo rhel-7-server-rpms,rhel-7-server-optional-rpms,rhel-7-server-extras-rpms,rhel-7-server-ose-3.4-rpms \
                    --setopt=tsflags=nodocs $INSTALL_PKGS && \
     rpm -V $INSTALL_PKGS && \
     yum clean all -y
