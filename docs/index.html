@@ -429,8 +429,10 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 <div id="toctitle">Table of Contents</div>
 <ul class="sectlevel1">
 <li><a href="#Introduction">Introduction</a></li>
-<li><a href="#enable">Configuring an OpenShift project</a>
+<li><a href="#existing-project">Using an existing project</a></li>
+<li><a href="#newproject">Configuring a new OpenShift project</a>
 <ul class="sectlevel2">
+<li><a href="#truetemplate-parameters">Template Parameters</a></li>
 <li><a href="#trueexternal-registry-buildconfig">External Registry BuildConfig</a></li>
 <li><a href="#jenkins-pipeline-strategy">Adding a Jenkins Pipeline Strategy</a></li>
 </ul>
@@ -462,26 +464,109 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 </div>
 </div>
 <div class="sect1">
-<h2 id="enable"><a class="anchor" href="#enable"></a>Configuring an OpenShift project</h2>
+<h2 id="existing-project"><a class="anchor" href="#existing-project"></a>Using an existing project</h2>
 <div class="sectionbody">
 <div class="paragraph">
-<p>Using the <a href="https://github.com/openshift/origin/blob/master/examples/jenkins/pipeline/samplepipeline.yaml">samplepipeline.yaml</a> as an example for modification.</p>
+<p>A simple tool has been provided to add create a new BuildConfig with the appropriate modifications required for the Container Zone registry.</p>
 </div>
 <div class="paragraph">
-<p>If you are already using a template adding the two variables below will asset in the Jenkinsfile and the BuildConfig for the external registry.</p>
+<p>This will be our existing project example.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight"><code>oc new-project demo
+oc new-build https://github.com/RHsyseng/container-rhel-examples --name="demo" --context-dir="starter-ansible" --strategy="docker"</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>A secret is required to access the external registry it can be created in two ways. The first example is to use docker login.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight"><code>USERREGKEY="..."
+docker login -p ${USERREGKEY} -e unused -u unused registry-url
+oc secrets new container-zone ~/.docker/config.json</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The next example is using just the openshift command to provide the necessary secret details.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight"><code>USERREGKEY="..."
+oc secrets new-dockercfg container-zone --docker-email='username@example.com' --docker-password='${USERREGKEY}' --docker-username='username' --docker-server='registry-url'</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now that we have our new secret list the existing BuildConfigs. We only have one so lets use that as our example.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight"><code>$ oc get bc                                                                                                                                                     NAME      TYPE      FROM      LATEST
+demo      Docker    Git       1</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Using <code>oc export</code> we pipe the output into <code>create-buildconfig.py</code>. The script will output the two new BuildConfigs.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlightjs highlight"><code>oc export buildconfig demo | ./create-buildconfig.py -f - --buildconfig demo-ex-reg --pushsecret container-zone --docker registry-url/username/name | oc create -f -
+buildconfig "sample-pipeline" created
+buildconfig "demo-ex-reg" created</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once Jenkins is running we can start a pipeline build and review the logs.</p>
+</div>
+<div class="literalblock">
+<div class="content">
+<pre>&gt; $ oc get pods
+NAME              READY     STATUS      RESTARTS   AGE
+demo-1-build      0/1       Completed   0          13m
+jenkins-1-bk73z   1/1       Running     0          3m
+
+&gt; $ oc start-build sample-pipeline
+build "sample-pipeline-1" started
+
+&gt; $ oc logs -f bc/demo-ex-reg
+...
+Removing intermediate container bbb67a9e7faf
+Successfully built e9458b698d5a
+
+Pushing image 10.53.252.55:5000/jcallen/demo ...
+Push successful</pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="newproject"><a class="anchor" href="#newproject"></a>Configuring a new OpenShift project</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We will be using <a href="https://github.com/jcpowermac/container-zone-pipeline-example/blob/master/template.yaml">template.yaml</a> as an example.  The template already contains three BuildConfigs to show examples of the modifications required to support pushing to the external registry.</p>
+</div>
+<div class="sect2">
+<h3 id="truetemplate-parameters"><a class="anchor" href="#truetemplate-parameters"></a>Template Parameters</h3>
+<div class="paragraph">
+<p>If you are already using a template adding the three variables below will assist in the Jenkinsfile and the BuildConfig for the external registry.</p>
 </div>
 <div class="listingblock">
 <div class="content">
 <pre class="highlightjs highlight"><code>- name: REGISTRY_HOST
-  value: rhc4tp-registry.stage.a4.vary.redhat.com
+  value: registry-host
   required: true
 - name: REGISTRY_USERNAME
-  value: p1115288976631126cdeaed0985605379f6c41dd348
+  value: registry-username
+  required: true
+- name: PUSH_SECRET
+  value: container-zone
   required: true</code></pre>
 </div>
 </div>
 <div class="paragraph">
 <p>The two values will be provided on the project page.</p>
+</div>
 </div>
 <div class="sect2">
 <h3 id="trueexternal-registry-buildconfig"><a class="anchor" href="#trueexternal-registry-buildconfig"></a>External Registry BuildConfig</h3>
@@ -491,63 +576,45 @@ First we add to the name variable <code>-ex-reg</code>.  Next modify the output 
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlightjs highlight"><code>- apiVersion: v1
+<pre class="highlightjs highlight"><code class="language-yaml" data-lang="yaml">- apiVersion: v1
   kind: BuildConfig
   metadata:
-    annotations:
-      description: Defines how to build the application
-    name: ${NAME}-ex-reg     <i class="conum" data-value="1"></i><b>(1)</b>
+    labels:
+      build: ${NAME}-ex-reg
+    name: ${NAME}-ex-reg
   spec:
-    output:                  <i class="conum" data-value="2"></i><b>(2)</b>
+    output:
+      pushSecret:
+        name: ${PUSH_SECRET} <i class="conum" data-value="1"></i><b>(1)</b>
       to:
         kind: DockerImage
-        name: ${REGISTRY_HOST}/${REGISTRY_USERNAME}/${NAME}:latest <i class="conum" data-value="3"></i><b>(3)</b>
-      pushSecret:
-        name: container-zone <i class="conum" data-value="4"></i><b>(4)</b>
-    postCommit:
-      script: npm test
+        name: ${REGISTRY_HOST}/${REGISTRY_USERNAME}/${NAME}:latest <i class="conum" data-value="2"></i><b>(2)</b>
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
     source:
-      contextDir: ${CONTEXT_DIR}
+      contextDir: starter-ansible
       git:
-        ref: ${SOURCE_REPOSITORY_REF}
-        uri: ${SOURCE_REPOSITORY_URL}
+        uri: https://github.com/RHsyseng/container-rhel-examples
       type: Git
     strategy:
-      sourceStrategy:
-        env:
-        - name: NPM_MIRROR
-          value: ${NPM_MIRROR}
+      dockerStrategy:
         from:
-          kind: ImageStreamTag
-          name: nodejs:4
-          namespace: ${NAMESPACE}
-      type: Source
-    triggers:
-    - github:
-        secret: ${GITHUB_WEBHOOK_SECRET}
-      type: GitHub
-    - generic:
-        secret: ${GENERIC_WEBHOOK_SECRET}
-      type: Generic</code></pre>
+          kind: DockerImage
+          name: registry.access.redhat.com/rhel7
+      type: Docker
+    triggers: []</code></pre>
 </div>
 </div>
 <div class="colist arabic">
 <table>
 <tr>
 <td><i class="conum" data-value="1"></i><b>1</b></td>
-<td>Variablized name of the BuildConfig</td>
+<td>The OpenShift new-dockercfg secret for container zone registry authentication</td>
 </tr>
 <tr>
 <td><i class="conum" data-value="2"></i><b>2</b></td>
-<td>Change the output to an external registry</td>
-</tr>
-<tr>
-<td><i class="conum" data-value="3"></i><b>3</b></td>
 <td>Name of the external registry host, user and image</td>
-</tr>
-<tr>
-<td><i class="conum" data-value="4"></i><b>4</b></td>
-<td>The OpenShift new-dockercfg secret for container zone registry authentication</td>
 </tr>
 </table>
 </div>
@@ -556,29 +623,36 @@ First we add to the name variable <code>-ex-reg</code>.  Next modify the output 
 <h3 id="jenkins-pipeline-strategy"><a class="anchor" href="#jenkins-pipeline-strategy"></a>Adding a Jenkins Pipeline Strategy</h3>
 <div class="listingblock">
 <div class="content">
-<pre class="highlightjs highlight"><code>  spec:
+<pre class="highlightjs highlight"><code>- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      name: sample-pipeline
+    name: sample-pipeline
+  spec:
+    output: {}
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      type: None
     strategy:
       jenkinsPipelineStrategy:
         jenkinsfile: |-
-          node('nodejs') {
-            stage('build') {        <i class="conum" data-value="1"></i><b>(1)</b>
-              openshiftBuild(buildConfig: '${NAME}', showBuildLogs: 'true')
+            node {
+                stage('build') {
+                    openshiftBuild(buildConfig: '${NAME}-ex-reg', showBuildLogs: 'true') <i class="conum" data-value="1"></i><b>(1)</b>
+                }
             }
-            stage('deploy') {       <i class="conum" data-value="2"></i><b>(2)</b>
-              openshiftDeploy(deploymentConfig: '${NAME}')
-            }
-            stage('build-ex-reg') { <i class="conum" data-value="3"></i><b>(3)</b>
-              openshiftBuild(buildConfig: '${NAME}-ex-reg', showBuildLogs: 'true')
-            }
-          }
-      type: JenkinsPipeline</code></pre>
+      type: JenkinsPipeline
+    triggers: []</code></pre>
 </div>
 </div>
 <div class="colist arabic">
 <table>
 <tr>
 <td><i class="conum" data-value="1"></i><b>1</b></td>
-<td>From the example we add an additional stage in the pipeline to run our additional BuildConfig that outputs to the external registry.</td>
+<td>An example use of openshiftBuild to start the build process.</td>
 </tr>
 </table>
 </div>
@@ -588,7 +662,7 @@ First we add to the name variable <code>-ex-reg</code>.  Next modify the output 
 </div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2017-02-16 09:09:40 EST
+Last updated 2017-02-22 21:17:52 EST
 </div>
 </div>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/8.9.1/styles/github.min.css">

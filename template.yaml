@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: container-zone-example 
+parameters:
+- name: NAME
+  required: true
+  value: demo
+- name: REGISTRY_HOST
+  value: rhc4tp-registry.stage.a4.vary.redhat.com 
+  required: true
+- name: REGISTRY_USERNAME
+  value: p1115288976631126cdeaed0985605379f6c41dd348
+  required: true
+- name: PUSH_SECRET 
+  value: container-zone 
+  required: true
+  
+  
+objects:
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    annotations: {}
+    name: ${NAME} 
+
+
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    annotations: {}
+    labels:
+      build: ${NAME}
+    name: ${NAME}
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: ${NAME}:latest
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      contextDir: starter-ansible
+      git:
+        uri: https://github.com/RHsyseng/container-rhel-examples
+      type: Git
+    strategy:
+      dockerStrategy:
+        from:
+          kind: DockerImage
+          name: registry.access.redhat.com/rhel7
+      type: Docker
+    triggers: []
+
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      build: ${NAME}-ex-reg
+    name: ${NAME}-ex-reg
+  spec:
+    output:
+      pushSecret:
+        name: ${PUSH_SECRET} 
+      to:
+        kind: DockerImage
+        name: ${REGISTRY_HOST}/${REGISTRY_USERNAME}/${NAME}:latest   
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      contextDir: starter-ansible
+      git:
+        uri: https://github.com/RHsyseng/container-rhel-examples
+      type: Git
+    strategy:
+      dockerStrategy:
+        from:
+          kind: DockerImage 
+          name: registry.access.redhat.com/rhel7
+      type: Docker
+    triggers: []
+
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      name: sample-pipeline
+    name: sample-pipeline
+  spec:
+    output: {}
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      type: None
+    strategy:
+      jenkinsPipelineStrategy:
+        jenkinsfile: |-
+            node {
+                stage('build') {
+                    openshiftBuild(buildConfig: '${NAME}-ex-reg', showBuildLogs: 'true')
+                }
+            }
+      type: JenkinsPipeline
+    triggers: []

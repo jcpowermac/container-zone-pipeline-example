@@ -13,22 +13,86 @@ This document will guide you through the process of integrating OpenShift with t
 The procedure below only works in on-premise or dedicated OpenShift environments.
 ====
 
-[[enable]]
-== Configuring an OpenShift project 
+
+[[existing-project]]
+== Using an existing project
+A simple tool has been provided to add create a new BuildConfig with the appropriate modifications required for the Container Zone registry.
+
+This will be our existing project example.
+[source]
+....
+oc new-project demo
+oc new-build https://github.com/RHsyseng/container-rhel-examples --name="demo" --context-dir="starter-ansible" --strategy="docker"
+....
 
 
-Using the https://github.com/openshift/origin/blob/master/examples/jenkins/pipeline/samplepipeline.yaml[samplepipeline.yaml] as an example for modification.
+A secret is required to access the external registry it can be created in two ways. The first example is to use docker login.
+[source]
+....
+USERREGKEY="..."
+docker login -p ${USERREGKEY} -e unused -u unused registry-url
+oc secrets new container-zone ~/.docker/config.json
+....
+The next example is using just the openshift command to provide the necessary secret details.
+[source]
+....
+USERREGKEY="..."
+oc secrets new-dockercfg container-zone --docker-email='username@example.com' --docker-password='${USERREGKEY}' --docker-username='username' --docker-server='registry-url'
+....
 
+Now that we have our new secret list the existing BuildConfigs. We only have one so lets use that as our example.
+[source]
+....
+$ oc get bc                                                                                                                                                     NAME      TYPE      FROM      LATEST
+demo      Docker    Git       1
+....
 
+Using `oc export` we pipe the output into `create-buildconfig.py`. The script will output the two new BuildConfigs.
+[source]
+....
+oc export buildconfig demo | ./create-buildconfig.py -f - --buildconfig demo-ex-reg --pushsecret container-zone --docker registry-url/username/name | oc create -f -
+buildconfig "sample-pipeline" created
+buildconfig "demo-ex-reg" created
+....
 
-If you are already using a template adding the two variables below will asset in the Jenkinsfile and the BuildConfig for the external registry.
+Once Jenkins is running we can start a pipeline build and review the logs.
+....
+> $ oc get pods
+NAME              READY     STATUS      RESTARTS   AGE
+demo-1-build      0/1       Completed   0          13m
+jenkins-1-bk73z   1/1       Running     0          3m
+
+> $ oc start-build sample-pipeline
+build "sample-pipeline-1" started
+
+> $ oc logs -f bc/demo-ex-reg
+...
+Removing intermediate container bbb67a9e7faf
+Successfully built e9458b698d5a
+
+Pushing image 10.53.252.55:5000/jcallen/demo ...
+Push successful
+
+....
+
+[[newproject]]
+== Configuring a new OpenShift project 
+
+We will be using https://github.com/jcpowermac/container-zone-pipeline-example/blob/master/template.yaml[template.yaml] as an example.  The template already contains three BuildConfigs to show examples of the modifications required to support pushing to the external registry.
+
+=== Template Parameters
+
+If you are already using a template adding the three variables below will assist in the Jenkinsfile and the BuildConfig for the external registry.
 [source]
 ....
 - name: REGISTRY_HOST
-  value: rhc4tp-registry.stage.a4.vary.redhat.com 
+  value: registry-host 
   required: true
 - name: REGISTRY_USERNAME
-  value: p1115288976631126cdeaed0985605379f6c41dd348
+  value: registry-username
+  required: true
+- name: PUSH_SECRET 
+  value: container-zone 
   required: true
 ....
 The two values will be provided on the project page.
@@ -37,77 +101,74 @@ The two values will be provided on the project page.
 === External Registry BuildConfig
 This is a duplication of the existing BuildConfig with some minor modifications.
 First we add to the name variable `-ex-reg`.  Next modify the output of the build process to a DockerImage. And finally we add a `pushSecret` named container-zone.
-[source]
+
+[source,yaml]
 ....
 - apiVersion: v1
   kind: BuildConfig
   metadata:
-    annotations:
-      description: Defines how to build the application
-    name: ${NAME}-ex-reg     <1>
-  spec: 
-    output:                  <2>
-      to:
-        kind: DockerImage 
-        name: ${REGISTRY_HOST}/${REGISTRY_USERNAME}/${NAME}:latest <3>
+    labels:
+      build: ${NAME}-ex-reg 
+    name: ${NAME}-ex-reg
+  spec:
+    output:
       pushSecret:
-        name: container-zone <4>
-    postCommit:
-      script: npm test
+        name: ${PUSH_SECRET} <1>
+      to:
+        kind: DockerImage
+        name: ${REGISTRY_HOST}/${REGISTRY_USERNAME}/${NAME}:latest <2>
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
     source:
-      contextDir: ${CONTEXT_DIR}
+      contextDir: starter-ansible
       git:
-        ref: ${SOURCE_REPOSITORY_REF}
-        uri: ${SOURCE_REPOSITORY_URL}
+        uri: https://github.com/RHsyseng/container-rhel-examples
       type: Git
     strategy:
-      sourceStrategy:
-        env:
-        - name: NPM_MIRROR
-          value: ${NPM_MIRROR}
+      dockerStrategy:
         from:
-          kind: ImageStreamTag
-          name: nodejs:4
-          namespace: ${NAMESPACE}
-      type: Source
-    triggers:
-    - github:
-        secret: ${GITHUB_WEBHOOK_SECRET}
-      type: GitHub
-    - generic:
-        secret: ${GENERIC_WEBHOOK_SECRET}
-      type: Generic
+          kind: DockerImage 
+          name: registry.access.redhat.com/rhel7
+      type: Docker
+    triggers: []
 ....
-<1> Variablized name of the BuildConfig 
-<2> Change the output to an external registry
-<3> Name of the external registry host, user and image
-<4> The OpenShift new-dockercfg secret for container zone registry authentication
+<1> The OpenShift new-dockercfg secret for container zone registry authentication
+<2> Name of the external registry host, user and image
 
 
 [[jenkins-pipeline-strategy]]
 === Adding a Jenkins Pipeline Strategy
 
+
 [source]
 ....
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      name: sample-pipeline
+    name: sample-pipeline
   spec:
+    output: {}
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      type: None
     strategy:
       jenkinsPipelineStrategy:
         jenkinsfile: |-
-          node('nodejs') {
-            stage('build') {        <1>
-              openshiftBuild(buildConfig: '${NAME}', showBuildLogs: 'true')
+            node {
+                stage('build') {
+                    openshiftBuild(buildConfig: '${NAME}-ex-reg', showBuildLogs: 'true') <1>
+                }
             }
-            stage('deploy') {       <2>
-              openshiftDeploy(deploymentConfig: '${NAME}')
-            }
-            stage('build-ex-reg') { <3>
-              openshiftBuild(buildConfig: '${NAME}-ex-reg', showBuildLogs: 'true')
-            }
-          }
       type: JenkinsPipeline
+    triggers: []
 ....
 
-<3> From the example we add an additional stage in the pipeline to run our additional BuildConfig that outputs to the external registry.
+<1> An example use of openshiftBuild to start the build process.
 
 
 
